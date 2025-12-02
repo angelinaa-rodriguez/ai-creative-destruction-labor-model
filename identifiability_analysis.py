@@ -103,21 +103,28 @@ def MCMCparfind(solutionfunction, par1guess, datalist, *args):
     # Initial evaluation
     _, X1 = solutionfunction(par1guess, time_points, *args)
     chi1 = np.linalg.norm((X1 - data_vals)**2)
+    # print("this is chi1" + str(chi1))
 
     # Settings
-    sd = 0.25 * max(np.mean(np.abs(par1guess)), 1)
+    sd = np.array([x * 0.005 for x in par1guess])
     total = 1000
-    burntime = total // 2
+    burntime = total // 10
     sigma = 1.0
 
     par_samples = []
     chis = []
+    accept = np.zeros(total)
+    num_accept = 0
 
     # MCMC loop
     for j in range(total):
 
         # propose new parameters (Gaussian RW), enforce positivity
-        par2guess = np.abs(par1guess + sd * np.random.randn(n))
+        par2guess = par1guess + sd * np.random.randn(n)
+
+        # if np.any(par2guess <= 0):
+        #     print('skipped')
+        #     continue
 
         _, X2 = solutionfunction(par2guess, time_points, *args)
         chi2 = np.linalg.norm((X2 - data_vals)**2)
@@ -127,14 +134,21 @@ def MCMCparfind(solutionfunction, par1guess, datalist, *args):
         ratio = np.exp(min(100, value))   # cap exponent to prevent overflow
         if np.random.rand() < ratio:
             par1guess = par2guess
+            # print("this is chi2" + str(chi2))
             chi1 = chi2
+            num_accept += 1 
+            accept[j] = 1
 
         if j > burntime:
             par_samples.append(par1guess.copy())
             chis.append(chi1)
 
+    perc_accept = num_accept / total 
+    print("PERCENT ACCEPTED:" + str(perc_accept))
     par_samples = np.array(par_samples)
     chis = np.array(chis)
+    # print(chis)
+    
 
     # best sample
     idx_best = np.argmin(chis)
@@ -175,6 +189,8 @@ par_best, fval, par_samples = MCMCparfind(
 # ============================================================
 
 param_names = ["alpha", "phi", "beta", "k", "lambda", "delta", "gamma", "rho"]
+
+# print(par_samples[:, 0])
 
 for i in range(len(param_names)):
     plt.figure()

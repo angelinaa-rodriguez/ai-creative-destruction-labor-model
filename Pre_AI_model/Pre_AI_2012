@@ -10,17 +10,11 @@ if ~isdatetime(data.Date)
     data.Date = datetime(data.Date,'InputFormat','yyyy-MM');
 end
 
-startDate = datetime(2021,7,1);
+startDate = datetime(2012,1,1);
 data = data(data.Date >= startDate, :);
 data.t = (0:height(data)-1)';
 
-% Example: start the model at 2021-06
-% startDate = datetime(2022,1,1);
-% data = data(~ismember(year(data.Date), [2020 2021]), :);
-% data = data(data.Date >= startDate, :);
-
-% --- If you only want pre-AI period, you can cut here (example up to 2022-12)
-cutoff = datetime(2022,12,1);
+cutoff = datetime(2019,12,1);
 data   = data(data.Date <= cutoff, :);
 
 %% Time index (0,1,2,... in months)
@@ -33,7 +27,6 @@ Wdata  = data.W_real;     % real wages
 Vdata  = data.V;          % value added
 tgrid  = t;               % grid for interpolating V(t) inside ODE
 
-% A0, g unused in pre-AI model but kept in signature if you want later
 A0 = 0;
 g  = 0;
 
@@ -55,9 +48,8 @@ start_rho    = 0.003;
     
 par_guess = [start_phi, start_beta, start_delta, start_gamma, start_rho]';
 
-% Lower bounds: all parameters >= 0
 lb = [0; -0.1; 0; 0; 0];
-ub = [2; 0.1; 10; 0.2; 0.2];   % no upper bounds
+ub = [2; 0.1; 10; 0.2; 0.2];  
 
 options = optimoptions('fmincon', ...
     'Display','iter-detailed', ...
@@ -212,9 +204,6 @@ function Ydot = econ_ode(t, Y, par, A0, g, tgrid, Vdata)
     E = Y(1);   % employment
     W = Y(2);   % wage
 
-    % If you ever use A(t) later:
-    % A = A0 * exp(g * t);   % currently unused (pre-AI)
-
     % Get V(t) by interpolating your discrete Vdata over tgrid
     V = interp1(tgrid, Vdata, t, 'linear', 'extrap');
 
@@ -228,12 +217,10 @@ function Ydot = econ_ode(t, Y, par, A0, g, tgrid, Vdata)
     gamma  = par(4);
     rho    = par(5);
 
-    % Employment dynamics (your existing form)
+    % employment 
     dE = phi * (L - E) - 0.017 * E + beta * W;
 
-    % Wage dynamics:
-    %   dW = phi * W / (V/E) - gamma * E - rho * W
-    %       = phi * (W * E / V) - gamma * E - rho * W
+    %wage
     dW = delta * (V/E) - gamma * E - rho * W;
 
     Ydot = [dE; dW];

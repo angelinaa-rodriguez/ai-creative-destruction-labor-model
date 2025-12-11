@@ -21,32 +21,32 @@ Vdata = data.value_added / 1e6;
 
 
 %% grab the fitted parameters
-% parameters are lambda, beta, phi, gamma, rho 
 
-fitted = [10.0000, 0.0624, -0.0174, 0.0006, 0.0006, 6.0083, 0.0015, 0.0000];
-
-params0.phi    = 10.0000;
-params0.beta   = 0.0216;  
-params0.lambda = 0.0130;  
+params0.phi    = 0.0539;
+params0.beta   = -0.0053;  
+params0.delta  = 10.0000;  
 params0.gamma  = 0.0000;
 params0.rho    = 0.0000;
 
 
 % grab other inputs used by the model
-params0.Vdata = Vdata;   
+params0.Vdata = Vdata;  
 params0.E0 = Edata(1);
 params0.W0 = Wdata(1);
+params0.tgrid = t;     
+params0.A0 = 0;
+params0.g  = 0;
 
 L = 4400;
 
 %% set estimation bounds for variables (for LHS sampling)
-% Order: lambda, beta, phi, gamma, rho
+% Order: phi, beta, delta, gamma, rho
 % Choose sensible bounds for each parameter (edit to your priors)
-est_lb = [ 0.0;  -0.5;  0.0;  0.0;  0.0];   % lower bounds
-est_ub = [ 1.0;   0.5;  2.0;  1.0;  1.0];   % upper bounds
+est_lb =  [0; -0.1; 0; 0; 0];   % lower bounds
+est_ub = [2; 0.1; 50; 1; 1];   % upper bounds, increased from model code to do meaningful sensitivity analysis
 
 % parameter names in same order for sampling
-sampleParams = {'lambda','beta','phi','gamma','rho'};
+sampleParams = {'phi','beta','delta','gamma','rho'};
 
 
 %% local sensitivity -> elasticity
@@ -60,7 +60,7 @@ local_results = struct();
 fnames = fieldnames(params0);
 for k = 1:numel(fnames)
     name = fnames{k};
-    if strcmp(name,'Vdata') || strcmp(name,'E0') || strcmp(name,'W0')
+    if ismember(name, {'Vdata','E0','W0','tgrid','A0','g'})
         continue;
     end
     baseval = params0.(name);
@@ -78,18 +78,30 @@ for k = 1:numel(fnames)
                                  'elasticity_E',elasticity_E,'elasticity_W',elasticity_W);
 end
 
-% plot local E_final
+
 names = fieldnames(local_results);
+
+% print results to grab exact values
+fprintf('\nLOCAL RESULTS\n');
+for k = 1:numel(names)
+    nm = names{k};
+    lr = local_results.(nm);
+    fprintf('%s:  dE/dp = %.4f,  dW/dp = %.4f,  elast_E = %.4f,  elast_W = %.4f\n', ...
+        nm, lr.dEdp, lr.dWdp, lr.elasticity_E, lr.elasticity_W);
+end
+
+% plot local E_final
+fprintf('\n');
 elsE = cellfun(@(n) local_results.(n).elasticity_E, names);
 [elsE_sorted, idxE] = sort(elsE);
 figure; barh(elsE_sorted); set(gca,'YTick',1:numel(names),'YTickLabel',names(idxE));
-xlabel('Elasticity on E(T)'); title('Local elasticities (E final)'); grid on;
+xlabel('Elasticity on E(T)'); title('Local sensitivity for E(T)'); grid on;
 
 % plot local W_final
 elsW = cellfun(@(n) local_results.(n).elasticity_W, names);
 [elsW_sorted, idxW] = sort(elsW);
 figure; barh(elsW_sorted); set(gca,'YTick',1:numel(names),'YTickLabel',names(idxW));
-xlabel('Elasticity on W(T)'); title('Local elasticities (W final)'); grid on;
+xlabel('Elasticity on W(T)'); title('Local sensitivity for W(T)'); grid on;
 
 %% global sensitivity -> lhs + PRCC 
 
@@ -109,9 +121,9 @@ for i=1:M
     if abs(v) < 1e-12
         % use estimation bounds for near-zero parameters
         switch pname
-            case 'lambda'; idx_est = 1;
+            case 'phi'; idx_est = 1;
             case 'beta';   idx_est = 2;
-            case 'phi';    idx_est = 3;
+            case 'delta';    idx_est = 3;
             case 'gamma';  idx_est = 4;
             case 'rho';    idx_est = 5;
         end
@@ -184,17 +196,25 @@ for i=1:nparams
     prccW(i) = -Rinv2(i,end) / sqrt(Rinv2(i,i) * Rinv2(end,end));
 end
 
+% print results to grab exact values
+fprintf('\nGLOBAL RESULTS\n');
+for i = 1:numel(paramsUsed)
+    fprintf('%s:  PRCC_E = %.4f,  PRCC_W = %.4f\n', ...
+        paramsUsed{i}, prccE(i), prccW(i));
+end
+fprintf('\n');
+
 % plot PRCC for E
 [sortedE, idxE] = sort(prccE);
 figure; barh(sortedE);
 set(gca,'YTick',1:sum(varMask),'YTickLabel',paramsUsed(idxE));
-xlabel('PRCC'); title('PRCC for E(T)'); grid on;
+xlabel('PRCC'); title('Global Sensitivity for E(T)'); grid on;
 
 % plot PRCC for W
 [sortedW, idxW] = sort(prccW);
 figure; barh(sortedW);
 set(gca,'YTick',1:sum(varMask),'YTickLabel',paramsUsed(idxW));
-xlabel('PRCC'); title('PRCC for W(T)'); grid on;
+xlabel('PRCC'); title('Global Sensitivity for W(T)'); grid on;
 
 %% results yum
 out.paramSamples = array2table(paramSamples_clean, 'VariableNames', paramsUsed);
@@ -214,35 +234,38 @@ fprintf('successful run yay.\n');
 %% simulation 
 
 function [Efinal, Wfinal] = simulate_model(p, L, T)
-    y0 = [p.E0; p.W0];
+    y0 = [p.E0, p.W0];
     opts = odeset('RelTol',1e-6,'AbsTol',1e-8);
+
     [tsol, Y] = ode45(@(tt,YY) econ_ode(tt,YY,p,L), [0 T], y0, opts);
+
     Efinal = Y(end,1);
     Wfinal = Y(end,2);
 end
 
 %% updated ode function for the new model
-function Ydot = econ_ode(t, Y, par_struct, L)
-    % Unpack state
-    E = max(Y(1), 1);     % floor to avoid division by zero
+function Ydot = econ_ode(t, Y, p, L)
+
+    E = Y(1);
     W = Y(2);
 
-    % pick correct V for this t (use Vdata time series)
-    idx = min(max(floor(t)+1,1), length(par_struct.Vdata));
-    V = par_struct.Vdata(idx);
+    % interpolate V just like pre-AI model
+    V = interp1(p.tgrid, p.Vdata, t, 'linear', 'extrap');
 
-    % Unpack parameters from struct (new model's parameters)
-    lambda = par_struct.lambda;
-    beta   = par_struct.beta;
-    phi    = par_struct.phi;
-    gamma  = par_struct.gamma;
-    rho    = par_struct.rho;
+    % parameters 
+    phi   = p.phi;
+    beta  = p.beta;
+    delta = p.delta;
+    gamma = p.gamma;
+    rho   = p.rho;
 
-    % NEW MODEL:
-    % dE = lambda*(L - E) - 0.017*E + beta*W
-    % dW = phi*(V/E) - gamma*E - rho*W
-    dE = lambda .* (L - E) - 0.017 .* E + beta .* W;
-    dW = phi .* (V ./ E) - gamma .* E - rho .* W;
+    % prevent V/E from becoming too big
+    if E < 1e-6
+        E = 1e-6;
+    end
+
+    dE = phi * (L - E) - 0.017 * E + beta * W;
+    dW = delta * (V/E) - gamma * E - rho * W;
 
     Ydot = [dE; dW];
 end

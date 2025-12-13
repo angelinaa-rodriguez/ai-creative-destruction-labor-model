@@ -1,0 +1,129 @@
+---
+title: "AI adoption rate processing"
+author: "Jade Jiao"
+format: html
+editor: visual
+---
+
+```{r}
+df <- read.csv("~/Downloads/final_merged_with_productivity.csv")
+```
+
+```{r}
+df$date <- as.Date(paste0(df$date, "-01"))
+cutoff_idx <- which(df$date == as.Date("2023-06-01"))
+df$x <- c(seq_len(cutoff_idx), rep(NA, nrow(df) - cutoff_idx))
+
+y <- log(df$productivity)
+x <- df$x
+
+lm(y ~ x, data = df)
+```
+
+Therefore, we estimate g to be 0.008129.
+
+```{r}
+readLines("~/Downloads/VAIndustry.csv", n = 20)
+```
+
+```{r}
+vadf <- read.csv("~/Downloads/VAIndustry.csv",
+                 header = FALSE, fill = TRUE, quote = "")
+
+# Identify tech industry rows ----
+patterns <- "Information|Publish|Data pro|Computer systems|Professional, scientific"
+
+tech_rows <- vadf[grep(patterns, vadf$V2), ]
+
+# Convert numeric columns (V3 = 2023 Q1)
+for (i in 3:ncol(tech_rows)) {
+  tech_rows[, i] <- suppressWarnings(as.numeric(gsub(",", "", tech_rows[, i])))
+}
+
+# Sum 2023 Q1 values (column V3)
+tech_2023Q1 <- sum(tech_rows[, 3], na.rm = TRUE)
+
+# Get total GDP (row containing "Gross domestic product")
+gdp_row <- vadf[grep("Gross domestic product", vadf$V2), ]
+gdp_2023Q1 <- as.numeric(gsub(",", "", gdp_row[, 3]))
+
+tech_share_2023Q1 <- tech_2023Q1 / gdp_2023Q1
+
+tech_2023Q1
+gdp_2023Q1
+tech_share_2023Q1
+```
+
+```{r}
+head(vadf, 10)
+```
+
+```{r}
+# Load raw BEA CSV (messy format)
+vadf <- read.csv("~/Downloads/VAIndustry.csv",
+                 header = FALSE, fill = TRUE, quote = "", stringsAsFactors = FALSE)
+
+# 1. Patterns for core tech + expanded SV-adjacent tech
+patterns <- paste(
+  "Information",
+  "Publish",                   # publishing industries (includes software)
+  "Data pro",                  # data processing, hosting
+  "Computer systems",          # IT consulting & software engineering
+  "Scientific research",       # R&D
+  "electronic products",       # semiconductor & electronics manufacturing
+  sep="|"
+)
+
+# 2. Extract all matching rows from V2 (industry names)
+tech_rows <- vadf[grep(patterns, vadf$V2, ignore.case = TRUE), ]
+
+
+# 3. Convert numeric columns to numeric safely
+for (i in 3:ncol(tech_rows)) {
+  tech_rows[, i] <- suppressWarnings(as.numeric(gsub(",", "", tech_rows[, i])))
+}
+
+
+# 4. Extract 2023 Q1 tech GDP  (column V3)
+tech_2023Q1 <- sum(tech_rows[, 3], na.rm = TRUE)
+
+
+# 5. Extract total GDP (Gross domestic product row)
+gdp_row <- vadf[grep("Gross domestic product", vadf$V2), ]
+gdp_2023Q1 <- as.numeric(gsub(",", "", gdp_row[, 3]))
+
+
+# 6. Compute tech share of GDP
+tech_share_2023Q1 <- tech_2023Q1 / gdp_2023Q1
+
+
+# 7. Print results
+tech_2023Q1
+gdp_2023Q1
+tech_share_2023Q1
+
+```
+
+```{r}
+# Parameters
+A0 <- 2212.1          
+g  <- 0.05405          
+
+dates <- seq.Date(from = as.Date("2023-01-01"),
+                  to   = as.Date("2025-12-01"),
+                  by   = "month")
+
+
+t <- 0:(length(dates) - 1)
+A_t <- A0 * exp(g * t)
+
+A_df <- data.frame(
+  Date = dates,
+  t = t,
+  A_t = A_t
+)
+```
+
+```{r}
+write.csv(A_df, "~/Downloads/A_df.csv", row.names = FALSE)
+```
